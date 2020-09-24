@@ -1,0 +1,92 @@
+version: '3.7'
+
+networks:
+    l8-network:
+        driver: bridge
+
+volumes:
+    l8-volume:
+        driver: local
+
+services:
+    nginx:
+        image: nginx:stable-alpine
+        container_name: l8_nginx
+        ports:
+            - 80:80
+            - 443:443
+        volumes:
+            - ./src/:/var/www/html:cached
+            - ./.docker/nginx:/etc/nginx/conf.d
+            - ./.docker/nginx/ssl:/etc/nginx/conf.d/ssl
+        depends_on:
+            - app
+        networks:
+        - l8-network
+
+    app:
+        build:
+            context: ./.docker/php
+            args:
+                - ENV=local
+            dockerfile: Dockerfile
+        container_name: l8_app
+        restart: unless-stopped
+        volumes:
+            - ./src/:/var/www/html:cached
+            - ./.docker/php/php-fpm.ini:/usr/local/etc/php/conf.d/custom.ini
+            - ~/.ssh:/root/.ssh
+        depends_on: 
+            - mariadb
+            - redis
+        env_file: ./.env
+        networks:
+            - l8-network
+
+    mariadb:
+        image: mariadb:10.3.23
+        container_name: l8_mariadb
+        restart: unless-stopped
+        tty: true
+        volumes: 
+            - ./data/mysql:/var/lib/mysql
+        ports:
+            - 3306:3306
+        environment:
+            MYSQL_USER: l8
+            MYSQL_PASSWORD: l8
+            MYSQL_ROOT_USER: root
+            MYSQL_ROOT_PASSWORD: root
+            SERVICE_TAGS: dev
+            SERVICE_NAME: mysql
+        networks:
+            - l8-network
+
+    redis:
+        image: redis:6.0.5
+        container_name: l8_redis
+        restart: unless-stopped
+        tty: true
+        volumes:
+            - ./data/redis:/data
+        ports:
+            - 6379:6379
+        networks:
+            - l8-network
+
+    phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: l8_phpmyadmin
+        ports:
+            - "7000:80"
+        depends_on:
+            - mariadb
+        restart: always
+        links:
+            - mariadb:l8_mariadb
+        environment:
+            PMA_HOST: mysql
+            PMA_PORT: 3306
+            PMA_ARBITRARY: 1
+        networks:
+            - l8-network
